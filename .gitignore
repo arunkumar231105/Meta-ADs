@@ -39,3 +39,6 @@ backend/alembic/versions/__pycache__/
 # Local environment (frontend) — IMPORTANT
 .env
 .env.local
+
+backend/.env.local-backup
+backend/.env.*-backup
