@@ -1,5 +1,15 @@
-from datetime import datetime
-from typing import Optional, List
+"""
+Ad schemas — aligned with frontend fixture (src/api/_fixtures/ads.js).
+
+Key alignment decisions:
+- Top-level hook_type, hook_text, angle, angle_detail, offer_type,
+  confidence_score, status — for table rendering speed.
+- Nested ai_insights with {value, confidence} pairs — for detail view.
+- running_since_days and running_since_date — computed at response time.
+"""
+
+from datetime import datetime, timezone
+from typing import Optional, List, Any
 from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -39,60 +49,78 @@ class AdUpdate(BaseModel):
 class CompetitorRef(BaseModel):
     id: UUID
     name: str
-    domain: str
+    domain: Optional[str] = None
     logo_url: Optional[str] = None
     tier: int
-    region: str
+    region: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class InsightField(BaseModel):
+    """Wraps a single AI insight value with its confidence."""
+    value: Optional[str] = None
+    confidence: float = 0.0
 
 
 class AIInsights(BaseModel):
-    hook_text: Optional[str] = None
-    hook_type: Optional[str] = None
-    angle: Optional[str] = None
-    angle_detail: Optional[str] = None
-    offer_type: Optional[str] = None
-    offer_value: Optional[str] = None
-    creative_format: Optional[str] = None
-    product_line: Optional[str] = None
-    audience_type: Optional[str] = None
-    usp_detected: Optional[str] = None
-    confidence_score: float = 0.0
-    hook_confidence: float = 0.0
-    angle_confidence: float = 0.0
-    offer_confidence: float = 0.0
-    ai_notes: Optional[str] = None
-    summary: Optional[str] = None
-    suggested_angle: Optional[str] = None
-    suggested_hook: Optional[str] = None
-    model_version: Optional[str] = None
-    analyzed_at: Optional[datetime] = None
-
-    model_config = ConfigDict(from_attributes=True)
+    """Per-field insights with confidence scores. Matches frontend shape."""
+    hook: InsightField = Field(default_factory=InsightField)
+    hook_type: InsightField = Field(default_factory=InsightField)
+    angle: InsightField = Field(default_factory=InsightField)
+    offer_type: InsightField = Field(default_factory=InsightField)
+    offer_value: InsightField = Field(default_factory=InsightField)
+    creative_format: InsightField = Field(default_factory=InsightField)
+    product_line: InsightField = Field(default_factory=InsightField)
+    audience_type: InsightField = Field(default_factory=InsightField)
+    usp_detected: InsightField = Field(default_factory=InsightField)
+    overall: float = 0.0
 
 
 # ---------- Main ad response ----------
 
 class AdResponse(BaseModel):
+    """Single ad — frontend-aligned shape."""
     id: UUID
     competitor: CompetitorRef
     platform: str
+
+    # Denormalized top-level fields (for table speed; mirror ai_insights)
+    hook_type: Optional[str] = None
+    hook_text: Optional[str] = None
+    angle: Optional[str] = None
+    angle_detail: Optional[str] = None
+    offer_type: Optional[str] = None
+    confidence_score: float = 0.0
+    status: str
+
+    # Ad content
     headline: Optional[str] = None
     primary_text: Optional[str] = None
     cta: Optional[str] = None
     ad_url: Optional[str] = None
     landing_url: Optional[str] = None
     media_url: Optional[str] = None
-    is_video: bool
-    ad_library_id: Optional[str] = None
-    status: str
-    first_seen: datetime
-    last_seen: datetime
+    is_video: bool = False
+    variants: int = 0
+
+    # Timing — computed for frontend
+    running_since_days: int = 0
+    running_since_date: Optional[str] = None
     captured_at: datetime
-    variants: int
+    last_seen: datetime
+    first_seen: datetime
+
     notes: Optional[str] = None
+
+    # Full AI analysis
     ai_insights: Optional[AIInsights] = None
+    ai_notes: Optional[str] = None
+    analysis: Optional[dict] = None  # {summary, suggested_angle, suggested_hook}
+    evidence: Optional[dict] = None
+
+    # Bookkeeping
+    ad_library_id: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
@@ -111,13 +139,14 @@ class AdListResponse(BaseModel):
     meta: PaginationMeta
 
 
-# ---------- Summary ----------
+# ---------- Summary (frontend-aligned) ----------
 
 class AdsSummary(BaseModel):
-    total_ads: int
-    pending_analysis: int
+    total: int
     analyzed: int
-    approved: int
-    flagged: int
-    avg_confidence: float
-    by_platform: dict
+    analyzed_pct: float
+    pending: int
+    pending_pct: float
+    low_confidence: int
+    low_conf_pct: float
+    this_week: int

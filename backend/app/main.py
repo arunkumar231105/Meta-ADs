@@ -6,12 +6,13 @@ from app.config import settings
 from app.routers import auth as auth_router
 from app.routers import competitors as competitors_router
 from app.routers import ads as ads_router
+from app.routers import analysis as analysis_router
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print(f"[startup] Environment: {settings.ENVIRONMENT}")
-    print(f"[startup] App running on FastAPI")
+    print(f"[startup] AI provider: Groq ({settings.GROQ_MODEL})")
     yield
     print("[shutdown] Goodbye.")
 
@@ -36,6 +37,7 @@ app.add_middleware(
 app.include_router(auth_router.router, prefix="/api")
 app.include_router(competitors_router.router, prefix="/api")
 app.include_router(ads_router.router, prefix="/api")
+app.include_router(analysis_router.router, prefix="/api")
 
 
 @app.get("/")

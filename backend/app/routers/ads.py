@@ -32,14 +32,68 @@ router = APIRouter(prefix="/competitor-ads", tags=["ads"])
 
 def _ad_to_response(ad: Ad) -> AdResponse:
     """Convert SQLAlchemy Ad (with relationships loaded) into AdResponse."""
+    from app.schemas.ad import AIInsights, InsightField, CompetitorRef
+
+    # Build ai_insights nested shape if analysis exists
     insights = None
+    top_hook_type = None
+    top_hook_text = None
+    top_angle = None
+    top_angle_detail = None
+    top_offer_type = None
+    overall_conf = 0.0
+    ai_notes = None
+    analysis_block = None
+
     if ad.analysis is not None:
-        insights = AIInsights.model_validate(ad.analysis)
+        a = ad.analysis
+        insights = AIInsights(
+            hook=InsightField(value=a.hook_text, confidence=a.hook_confidence or 0.0),
+            hook_type=InsightField(value=a.hook_type, confidence=a.hook_confidence or 0.0),
+            angle=InsightField(value=a.angle, confidence=a.angle_confidence or 0.0),
+            offer_type=InsightField(value=a.offer_type, confidence=a.offer_confidence or 0.0),
+            offer_value=InsightField(value=a.offer_value, confidence=a.offer_confidence or 0.0),
+            creative_format=InsightField(value=a.creative_format, confidence=85.0),
+            product_line=InsightField(value=a.product_line, confidence=85.0),
+            audience_type=InsightField(value=a.audience_type, confidence=70.0),
+            usp_detected=InsightField(value=a.usp_detected, confidence=80.0),
+            overall=a.confidence_score or 0.0,
+        )
+        top_hook_type = a.hook_type
+        top_hook_text = a.hook_text
+        top_angle = a.angle
+        top_angle_detail = a.angle_detail
+        top_offer_type = a.offer_type
+        overall_conf = a.confidence_score or 0.0
+        ai_notes = a.ai_notes
+
+        if a.summary or a.suggested_angle or a.suggested_hook:
+            analysis_block = {
+                "summary": a.summary,
+                "suggested_angle": a.suggested_angle,
+                "suggested_hook": a.suggested_hook,
+            }
+
+    # Compute running_since_days from first_seen
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+    first_seen = ad.first_seen
+    if first_seen.tzinfo is None:
+        first_seen = first_seen.replace(tzinfo=timezone.utc)
+    days = max(0, (now - first_seen).days)
+    date_str = first_seen.strftime("%b %d, %Y")
 
     return AdResponse(
         id=ad.id,
         competitor=CompetitorRef.model_validate(ad.competitor),
         platform=ad.platform,
+        hook_type=top_hook_type,
+        hook_text=top_hook_text,
+        angle=top_angle,
+        angle_detail=top_angle_detail,
+        offer_type=top_offer_type,
+        confidence_score=overall_conf,
+        status=ad.status,
         headline=ad.headline,
         primary_text=ad.primary_text,
         cta=ad.cta,
@@ -47,14 +101,18 @@ def _ad_to_response(ad: Ad) -> AdResponse:
         landing_url=ad.landing_url,
         media_url=ad.media_url,
         is_video=ad.is_video,
-        ad_library_id=ad.ad_library_id,
-        status=ad.status,
-        first_seen=ad.first_seen,
-        last_seen=ad.last_seen,
-        captured_at=ad.captured_at,
         variants=ad.variants,
+        running_since_days=days,
+        running_since_date=date_str,
+        captured_at=ad.captured_at,
+        last_seen=ad.last_seen,
+        first_seen=ad.first_seen,
         notes=ad.notes,
         ai_insights=insights,
+        ai_notes=ai_notes,
+        analysis=analysis_block,
+        evidence=None,
+        ad_library_id=ad.ad_library_id,
         created_at=ad.created_at,
         updated_at=ad.updated_at,
     )
@@ -80,38 +138,42 @@ async def get_ads_summary(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Aggregate KPIs across all ads."""
+    """Aggregate KPIs across all ads — frontend-aligned shape."""
+    from datetime import datetime, timezone, timedelta
+
     # Total + status breakdown
-    status_stmt = select(Ad.status, func.count(Ad.id)).group_by(Ad.status)
-    status_rows = (await db.execute(status_stmt)).all()
-    status_counts = {row[0]: row[1] for row in status_rows}
+    total_stmt = select(func.count(Ad.id))
+    total = (await db.execute(total_stmt)).scalar() or 0
 
-    total_ads = sum(status_counts.values())
-    pending = status_counts.get("pending", 0)
-    approved = status_counts.get("approved", 0)
-    flagged = status_counts.get("flagged", 0)
-
-    # Analyzed = ads that have an AdAnalysis row
+    # Analyzed = ads with AdAnalysis row
     analyzed_stmt = select(func.count(AdAnalysis.id))
     analyzed = (await db.execute(analyzed_stmt)).scalar() or 0
 
-    # Average confidence
-    avg_conf_stmt = select(func.coalesce(func.avg(AdAnalysis.confidence_score), 0.0))
-    avg_conf = (await db.execute(avg_conf_stmt)).scalar() or 0.0
+    pending = total - analyzed
 
-    # Platform breakdown
-    platform_stmt = select(Ad.platform, func.count(Ad.id)).group_by(Ad.platform)
-    platform_rows = (await db.execute(platform_stmt)).all()
-    by_platform = {row[0]: row[1] for row in platform_rows}
+    # Low confidence = analyses below threshold (default 65)
+    low_conf_stmt = select(func.count(AdAnalysis.id)).where(
+        AdAnalysis.confidence_score < 65
+    )
+    low_confidence = (await db.execute(low_conf_stmt)).scalar() or 0
+
+    # This week = ads captured in last 7 days
+    week_ago = datetime.now(timezone.utc) - timedelta(days=7)
+    week_stmt = select(func.count(Ad.id)).where(Ad.captured_at >= week_ago)
+    this_week = (await db.execute(week_stmt)).scalar() or 0
+
+    def pct(n: int, d: int) -> float:
+        return round((n / d * 100), 1) if d else 0.0
 
     return AdsSummary(
-        total_ads=total_ads,
-        pending_analysis=total_ads - analyzed,
+        total=total,
         analyzed=analyzed,
-        approved=approved,
-        flagged=flagged,
-        avg_confidence=round(float(avg_conf), 1),
-        by_platform=by_platform,
+        analyzed_pct=pct(analyzed, total),
+        pending=pending,
+        pending_pct=pct(pending, total),
+        low_confidence=low_confidence,
+        low_conf_pct=pct(low_confidence, total),
+        this_week=this_week,
     )
 
 
