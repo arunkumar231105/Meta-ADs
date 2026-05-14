@@ -7,7 +7,7 @@ from app.routers import auth as auth_router
 from app.routers import competitors as competitors_router
 from app.routers import ads as ads_router
 from app.routers import analysis as analysis_router
-
+from app.routers import hooks as hooks_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -38,6 +38,7 @@ app.include_router(auth_router.router, prefix="/api")
 app.include_router(competitors_router.router, prefix="/api")
 app.include_router(ads_router.router, prefix="/api")
 app.include_router(analysis_router.router, prefix="/api")
+app.include_router(hooks_router.router, prefix="/api")
 
 
 @app.get("/")
