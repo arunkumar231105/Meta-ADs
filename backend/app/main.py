@@ -11,6 +11,7 @@ from app.routers import hooks as hooks_router
 from app.routers import angles as angles_router
 from app.routers import offers as offers_router
 from app.routers import dashboard as dashboard_router
+from app.routers import review_queue as review_queue_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -45,6 +46,8 @@ app.include_router(hooks_router.router, prefix="/api")
 app.include_router(angles_router.router, prefix="/api")
 app.include_router(offers_router.router, prefix="/api")
 app.include_router(dashboard_router.router, prefix="/api")
+app.include_router(review_queue_router.router, prefix="/api")
+
 
 @app.get("/")
 async def root():
