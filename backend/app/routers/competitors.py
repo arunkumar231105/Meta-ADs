@@ -3,7 +3,7 @@ from typing import List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy import select, func, case, and_
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -17,73 +17,111 @@ from app.schemas.competitor import (
     CompetitorUpdate,
     CompetitorResponse,
     CompetitorStats,
-    CompetitorSummary,
+    CompetitorsSummary,
 )
 
 
 router = APIRouter(prefix="/competitors", tags=["competitors"])
 
 
-# ---------- Helper to compute stats for one competitor ----------
+# ---------- Helper: compute stats for one competitor ----------
 
-async def _compute_stats_for_competitor(db: AsyncSession, competitor_id: UUID) -> CompetitorStats:
-    """Compute aggregate stats for a single competitor."""
-    seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
+async def _compute_stats_for_competitor(
+    db: AsyncSession, competitor_id: UUID
+) -> CompetitorStats:
+    """Per-competitor stats: pulls from Ad + AdAnalysis tables."""
+    # Total ads
+    total_stmt = select(func.count(Ad.id)).where(Ad.competitor_id == competitor_id)
+    total = (await db.execute(total_stmt)).scalar() or 0
 
-    # Aggregated query over ads + ad_analyses
-    stmt = (
-        select(
-            func.count(Ad.id).label("total_ads"),
-            func.count(case((Ad.last_seen >= seven_days_ago, 1))).label("existing_ads"),
-            func.count(case((Ad.last_seen < seven_days_ago, 1))).label("removed_ads"),
-            func.coalesce(
-                func.avg(
-                    func.extract("epoch", Ad.last_seen - Ad.first_seen) / 86400.0
-                ),
-                0.0,
-            ).label("avg_duration"),
-            func.count(
-                case(
-                    (func.extract("epoch", Ad.last_seen - Ad.first_seen) / 86400.0 >= 7, 1)
-                )
-            ).label("running_7_plus"),
-            func.count(case((AdAnalysis.confidence_score >= 75, 1))).label("winning_ads"),
-            func.coalesce(func.sum(Ad.variants), 0).label("variants"),
-            func.max(Ad.last_seen).label("last_activity"),
-        )
-        .select_from(Ad)
-        .outerjoin(AdAnalysis, AdAnalysis.ad_id == Ad.id)
-        .where(Ad.competitor_id == competitor_id)
+    if total == 0:
+        return CompetitorStats()
+
+    # Existing = approved or pending
+    existing_stmt = select(func.count(Ad.id)).where(
+        Ad.competitor_id == competitor_id,
+        Ad.status.in_(["approved", "pending"]),
     )
+    existing = (await db.execute(existing_stmt)).scalar() or 0
 
-    result = (await db.execute(stmt)).one()
+    # Removed = flagged
+    removed_stmt = select(func.count(Ad.id)).where(
+        Ad.competitor_id == competitor_id,
+        Ad.status == "flagged",
+    )
+    removed = (await db.execute(removed_stmt)).scalar() or 0
 
-    total = result.total_ads or 0
-    existing = result.existing_ads or 0
-    removed = result.removed_ads or 0
-    running_7_plus = result.running_7_plus or 0
-    winning = result.winning_ads or 0
+    # Running 7+ days
+    week_ago = datetime.now(timezone.utc) - timedelta(days=7)
+    running_stmt = select(func.count(Ad.id)).where(
+        Ad.competitor_id == competitor_id,
+        Ad.first_seen <= week_ago,
+        Ad.status.in_(["approved", "pending"]),
+    )
+    running_7_plus = (await db.execute(running_stmt)).scalar() or 0
 
-    def pct(num, denom):
-        return round((num / denom) * 100, 1) if denom else 0.0
+    # Winning ads (confidence >= 85)
+    winning_stmt = (
+        select(func.count(AdAnalysis.id))
+        .join(Ad, Ad.id == AdAnalysis.ad_id)
+        .where(
+            Ad.competitor_id == competitor_id,
+            AdAnalysis.confidence_score >= 85,
+        )
+    )
+    winning = (await db.execute(winning_stmt)).scalar() or 0
+
+    # Variants total
+    variants_stmt = select(func.coalesce(func.sum(Ad.variants), 0)).where(
+        Ad.competitor_id == competitor_id
+    )
+    variants = (await db.execute(variants_stmt)).scalar() or 0
+
+    # Average duration (last_seen - first_seen, in days)
+    duration_stmt = select(
+        func.coalesce(
+            func.avg(
+                func.extract("epoch", Ad.last_seen)
+                - func.extract("epoch", Ad.first_seen)
+            ),
+            0,
+        )
+    ).where(Ad.competitor_id == competitor_id)
+    avg_dur_seconds = (await db.execute(duration_stmt)).scalar() or 0
+    avg_duration = round(float(avg_dur_seconds) / 86400, 1) if avg_dur_seconds else 0.0
+
+    # Last activity
+    last_act_stmt = select(func.max(Ad.last_seen)).where(
+        Ad.competitor_id == competitor_id
+    )
+    last_activity = (await db.execute(last_act_stmt)).scalar()
+
+    def pct(n: int, d: int) -> float:
+        return round((n / d * 100), 1) if d else 0.0
 
     return CompetitorStats(
         total_ads=total,
+        total_ads_trend=0.0,
+        total_ads_trend_up=True,
         existing_ads=existing,
         existing_ads_pct=pct(existing, total),
+        existing_ads_trend=0.0,
         removed_ads=removed,
         removed_ads_pct=pct(removed, total),
-        avg_duration=round(float(result.avg_duration or 0), 1),
+        avg_duration=avg_duration,
+        avg_duration_prev=0.0,
         running_7_plus=running_7_plus,
-        running_7_plus_pct=pct(running_7_plus, total),
+        running_7_plus_pct=pct(running_7_plus, existing) if existing else 0.0,
         winning_ads=winning,
-        winning_ads_pct=pct(winning, total),
-        variants=int(result.variants or 0),
-        last_activity=result.last_activity,
+        winning_ads_pct=pct(winning, existing) if existing else 0.0,
+        variants=int(variants),
+        last_activity=last_activity,
     )
 
 
-def _competitor_to_response(c: Competitor, stats: CompetitorStats) -> CompetitorResponse:
+def _competitor_to_response(
+    c: Competitor, stats: CompetitorStats
+) -> CompetitorResponse:
     return CompetitorResponse(
         id=c.id,
         name=c.name,
@@ -102,48 +140,68 @@ def _competitor_to_response(c: Competitor, stats: CompetitorStats) -> Competitor
 
 # ---------- Endpoints ----------
 
-@router.get("/summary", response_model=CompetitorSummary)
+@router.get("/summary", response_model=CompetitorsSummary)
 async def get_competitors_summary(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Aggregate KPIs across all active competitors."""
-    seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
+    """Aggregate KPI summary across ALL competitors — frontend-aligned."""
+    # Total ads analyzed
+    total_stmt = select(func.count(AdAnalysis.id))
+    total_analyzed = (await db.execute(total_stmt)).scalar() or 0
 
-    stmt = (
-        select(
-            func.count(func.distinct(Competitor.id)).label("total_competitors"),
-            func.count(
-                func.distinct(case((Competitor.status == "Active", Competitor.id)))
-            ).label("active_competitors"),
-            func.count(Ad.id).label("total_ads_analyzed"),
-            func.count(case((Ad.last_seen >= seven_days_ago, 1))).label("existing_ads"),
-            func.count(case((Ad.last_seen < seven_days_ago, 1))).label("removed_ads"),
+    # Existing
+    existing_stmt = select(func.count(Ad.id)).where(
+        Ad.status.in_(["approved", "pending"])
+    )
+    existing = (await db.execute(existing_stmt)).scalar() or 0
+
+    # Removed
+    removed_stmt = select(func.count(Ad.id)).where(Ad.status == "flagged")
+    removed = (await db.execute(removed_stmt)).scalar() or 0
+
+    # Running 7+ days
+    week_ago = datetime.now(timezone.utc) - timedelta(days=7)
+    running_stmt = select(func.count(Ad.id)).where(
+        Ad.first_seen <= week_ago,
+        Ad.status.in_(["approved", "pending"]),
+    )
+    running_7_plus = (await db.execute(running_stmt)).scalar() or 0
+
+    # Winning
+    winning_stmt = select(func.count(AdAnalysis.id)).where(
+        AdAnalysis.confidence_score >= 85
+    )
+    winning = (await db.execute(winning_stmt)).scalar() or 0
+
+    # Average duration across ALL ads
+    duration_stmt = select(
+        func.coalesce(
+            func.avg(
+                func.extract("epoch", Ad.last_seen)
+                - func.extract("epoch", Ad.first_seen)
+            ),
+            0,
         )
-        .select_from(Competitor)
-        .outerjoin(Ad, Ad.competitor_id == Competitor.id)
     )
-    row = (await db.execute(stmt)).one()
+    avg_dur_seconds = (await db.execute(duration_stmt)).scalar() or 0
+    avg_duration = round(float(avg_dur_seconds) / 86400, 1) if avg_dur_seconds else 0.0
 
-    # Winning percentage: ads with confidence_score >= 75 / total analyzed
-    winning_stmt = select(
-        func.count(case((AdAnalysis.confidence_score >= 75, 1))).label("winning"),
-        func.count(AdAnalysis.id).label("analyzed"),
-    )
-    winning_row = (await db.execute(winning_stmt)).one()
-    winning_pct = (
-        round(winning_row.winning / winning_row.analyzed * 100, 1)
-        if winning_row.analyzed
-        else 0.0
-    )
+    def pct(n: int, d: int) -> float:
+        return round((n / d * 100), 1) if d else 0.0
 
-    return CompetitorSummary(
-        total_competitors=row.total_competitors or 0,
-        active_competitors=row.active_competitors or 0,
-        total_ads_analyzed=row.total_ads_analyzed or 0,
-        existing_ads=row.existing_ads or 0,
-        removed_ads=row.removed_ads or 0,
-        avg_winning_pct=winning_pct,
+    return CompetitorsSummary(
+        total_ads_analyzed=total_analyzed,
+        total_ads_trend=0.0,
+        existing_ads=existing,
+        existing_ads_pct=pct(existing, total_analyzed),
+        removed_ads=removed,
+        removed_ads_pct=pct(removed, total_analyzed),
+        running_7_plus=running_7_plus,
+        running_7_plus_pct=pct(running_7_plus, existing) if existing else 0.0,
+        winning_ads=winning,
+        winning_ads_pct=pct(winning, existing) if existing else 0.0,
+        avg_duration=avg_duration,
     )
 
 
