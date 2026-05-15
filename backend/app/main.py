@@ -14,6 +14,7 @@ from app.routers import dashboard as dashboard_router
 from app.routers import review_queue as review_queue_router
 from app.routers import ai_analysis as ai_analysis_router
 from app.routers import briefs as briefs_router
+from app.routers import campaigns as campaigns_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -51,6 +52,7 @@ app.include_router(dashboard_router.router, prefix="/api")
 app.include_router(review_queue_router.router, prefix="/api")
 app.include_router(ai_analysis_router.router, prefix="/api")
 app.include_router(briefs_router.router, prefix="/api")
+app.include_router(campaigns_router.router, prefix="/api")
 
 
 @app.get("/")
