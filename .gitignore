@@ -22,3 +22,24 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+
+# Python / FastAPI backend
+backend/venv/
+backend/.env
+backend/__pycache__/
+backend/**/__pycache__/
+backend/*.pyc
+backend/**/*.pyc
+backend/uploads/
+backend/.pytest_cache/
+backend/.coverage
+backend/htmlcov/
+backend/alembic/versions/__pycache__/
+
+# Local environment (frontend) — IMPORTANT
+.env
+.env.local
+
+backend/.env.local-backup
+backend/.env.*-backup
