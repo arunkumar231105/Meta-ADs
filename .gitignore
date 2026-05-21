@@ -23,6 +23,7 @@ dist-ssr
 *.sln
 *.sw?
 
+
 # Python / FastAPI backend
 backend/venv/
 backend/.env
