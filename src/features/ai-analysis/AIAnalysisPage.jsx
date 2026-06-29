@@ -19,6 +19,8 @@ import ConfidenceBadge from '../../components/ui/ConfidenceBadge'
 import HookTypeBadge from '../../components/ui/HookTypeBadge'
 import DateRangePicker from '../../components/ui/DateRangePicker'
 import KPICard from '../../components/ui/KPICard'
+import MarketOverview from './components/MarketOverview'
+import CompetitorBreakdown from './components/CompetitorBreakdown'
 import {
   useAISummary,
   usePerformanceTimeline,
@@ -626,6 +628,15 @@ export default function AIAnalysisPage() {
           </div>
         }
       />
+
+      {/* Market Overview + Recommendation */}
+      <MarketOverview />
+
+      {/* Per-Competitor Breakdown */}
+      <CompetitorBreakdown />
+
+      {/* Overall Charts (existing) */}
+      <h2 className="text-base font-bold text-text-primary pt-4 border-t border-border-default">Overall Ad Analysis Charts</h2>
 
       {/* KPI cards */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">

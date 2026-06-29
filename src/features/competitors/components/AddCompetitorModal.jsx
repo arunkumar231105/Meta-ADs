@@ -1,20 +1,48 @@
-import { useState, useRef } from 'react'
+import { useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { X, Upload, Building2 } from 'lucide-react'
+import { X, Link2, CheckCircle2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useCreateCompetitor } from '../../../hooks/queries/useCompetitors'
 import Button from '../../../components/ui/Button'
 import { cn } from '../../../lib/utils'
 
+/**
+ * Parse a Meta Ad Library URL to extract page_id or query.
+ * Returns { page_id, query, query_type } or null if invalid.
+ */
+function parseMetaUrl(url) {
+  try {
+    const parsed = new URL(url)
+    const params = parsed.searchParams
+
+    const pageId = params.get('view_all_page_id')
+    if (pageId) {
+      return { page_id: pageId, query: null, query_type: 'page_id' }
+    }
+
+    const q = params.get('q')
+    if (q) {
+      return { page_id: null, query: q, query_type: 'keyword' }
+    }
+
+    return null
+  } catch {
+    return null
+  }
+}
+
 const schema = z.object({
-  name:          z.string().min(1, 'Name is required'),
-  domain:        z.string().min(1, 'Domain is required'),
-  priority_tier: z.enum(['High', 'Medium', 'Low'], { message: 'Select a priority tier' }),
-  niche:         z.string().min(1, 'Niche is required'),
-  tags:          z.string().optional(),
+  name: z.string().min(1, 'Name is required'),
+  meta_ad_library_url: z.string().min(1, 'Meta Ad Library URL is required').refine(
+    (url) => parseMetaUrl(url) !== null,
+    'URL must contain view_all_page_id=... or q=...'
+  ),
+  priority_tier: z.enum(['High', 'Medium', 'Low']),
+  niche: z.string().optional(),
+  tags: z.string().optional(),
 })
 
 function FieldError({ message }) {
@@ -39,49 +67,55 @@ const INPUT = cn(
 )
 
 export default function AddCompetitorModal({ open, onOpenChange }) {
-  const [logoFile, setLogoFile]       = useState(null)
-  const [logoPreview, setLogoPreview] = useState(null)
-  const fileRef = useRef(null)
+  const [parsedUrl, setParsedUrl] = useState(null)
 
   const { mutate, isPending } = useCreateCompetitor({
     onSuccess: () => {
       toast.success('Competitor added successfully')
       onOpenChange(false)
     },
-    onError: () => toast.error('Failed to add competitor'),
+    onError: (err) => {
+      const msg = err?.response?.data?.detail || 'Failed to add competitor'
+      toast.error(msg)
+    },
   })
 
   const {
     register,
     handleSubmit,
     reset,
+    watch,
     formState: { errors },
   } = useForm({
     resolver: zodResolver(schema),
-    defaultValues: { priority_tier: 'Medium' },
+    defaultValues: { priority_tier: 'Medium', niche: '', tags: '' },
   })
 
+  // Watch the URL field to show parsed result
+  const urlValue = watch('meta_ad_library_url')
+  const currentParsed = urlValue ? parseMetaUrl(urlValue) : null
+
   const onSubmit = (data) => {
-    const fd = new FormData()
-    Object.entries(data).forEach(([k, v]) => { if (v) fd.append(k, v) })
-    if (logoFile) fd.append('logo', logoFile)
-    mutate(fd)
+    const parsed = parseMetaUrl(data.meta_ad_library_url)
+    if (!parsed) return
+
+    const payload = {
+      name: data.name,
+      meta_ad_library_url: data.meta_ad_library_url,
+      page_id: parsed.page_id,
+      query: parsed.query,
+      query_type: parsed.query_type,
+      niches: data.niche ? data.niche.split(',').map((s) => s.trim()).filter(Boolean) : ['DTF', 'Print-on-Demand'],
+      priority_tier: data.priority_tier,
+    }
+
+    mutate(payload)
   }
 
   const handleClose = () => {
     onOpenChange(false)
     reset()
-    setLogoFile(null)
-    setLogoPreview(null)
-  }
-
-  const handleLogo = (e) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    setLogoFile(file)
-    const reader = new FileReader()
-    reader.onload = (ev) => setLogoPreview(ev.target.result)
-    reader.readAsDataURL(file)
+    setParsedUrl(null)
   }
 
   return (
@@ -104,12 +138,12 @@ export default function AddCompetitorModal({ open, onOpenChange }) {
                 Add Competitor
               </Dialog.Title>
               <Dialog.Description className="mt-0.5 text-xs text-text-secondary">
-                Track a new competitor and their ad activity.
+                Paste the Meta Ad Library URL to start tracking a competitor.
               </Dialog.Description>
             </div>
             <button
               onClick={handleClose}
-              className="rounded-md p-1 text-text-tertiary hover:bg-gray-100 hover:text-text-primary focus-visible:outline-none"
+              className="rounded-md p-1 text-text-tertiary hover:bg-gray-100 hover:text-text-primary"
             >
               <X size={18} />
             </button>
@@ -117,97 +151,75 @@ export default function AddCompetitorModal({ open, onOpenChange }) {
 
           {/* Form */}
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-5 px-6 py-5">
-            {/* Logo upload */}
+            {/* Name */}
             <div>
-              <Label>Logo</Label>
-              <div className="flex items-center gap-4">
-                <button
-                  type="button"
-                  onClick={() => fileRef.current?.click()}
+              <Label htmlFor="name" required>Competitor Name</Label>
+              <input
+                id="name"
+                {...register('name')}
+                placeholder="e.g. Bear Transfers Print Center"
+                className={cn(INPUT, errors.name && 'border-danger-400 focus:ring-danger-400')}
+              />
+              <FieldError message={errors.name?.message} />
+            </div>
+
+            {/* Meta Ad Library URL */}
+            <div>
+              <Label htmlFor="meta_ad_library_url" required>Meta Ad Library URL</Label>
+              <div className="relative">
+                <Link2 className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-tertiary" />
+                <input
+                  id="meta_ad_library_url"
+                  {...register('meta_ad_library_url')}
+                  placeholder="https://www.facebook.com/ads/library/?...&view_all_page_id=..."
                   className={cn(
-                    'flex h-16 w-16 flex-shrink-0 items-center justify-center',
-                    'rounded-md border-2 border-dashed border-border-default bg-gray-50',
-                    'hover:border-primary-400 hover:bg-primary-50 transition-colors overflow-hidden'
+                    INPUT,
+                    'pl-9',
+                    errors.meta_ad_library_url && 'border-danger-400 focus:ring-danger-400'
                   )}
-                >
-                  {logoPreview
-                    ? <img src={logoPreview} alt="" className="h-full w-full object-cover" />
-                    : <Building2 size={22} className="text-text-tertiary" />
-                  }
-                </button>
-                <div>
-                  <button
-                    type="button"
-                    onClick={() => fileRef.current?.click()}
-                    className="flex items-center gap-1.5 text-sm font-medium text-primary-600 hover:underline"
-                  >
-                    <Upload size={13} /> Upload logo
-                  </button>
-                  <p className="mt-0.5 text-xs text-text-tertiary">PNG, JPG up to 2 MB</p>
+                />
+              </div>
+              <p className="mt-1 text-[10px] text-text-tertiary">
+                Open the brand on Meta Ad Library, copy the page URL — we'll pull the page ID automatically.
+              </p>
+              <FieldError message={errors.meta_ad_library_url?.message} />
+
+              {/* Parsed result confirmation */}
+              {currentParsed && (
+                <div className="mt-2 flex items-center gap-2 rounded-md bg-green-50 px-3 py-2">
+                  <CheckCircle2 size={14} className="text-green-600" />
+                  <span className="text-xs text-green-700">
+                    {currentParsed.query_type === 'page_id'
+                      ? `Page ID detected: ${currentParsed.page_id}`
+                      : `Keyword detected: "${currentParsed.query}"`}
+                  </span>
                 </div>
-                <input
-                  ref={fileRef}
-                  type="file"
-                  accept="image/*"
-                  onChange={handleLogo}
-                  className="hidden"
-                />
-              </div>
+              )}
             </div>
 
-            {/* Name + Domain */}
+            {/* Niche + Priority */}
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label htmlFor="name" required>Name</Label>
-                <input
-                  id="name"
-                  {...register('name')}
-                  placeholder="e.g. BrandX"
-                  className={cn(INPUT, errors.name && 'border-danger-400 focus:ring-danger-400')}
-                />
-                <FieldError message={errors.name?.message} />
-              </div>
-              <div>
-                <Label htmlFor="domain" required>Domain</Label>
-                <input
-                  id="domain"
-                  {...register('domain')}
-                  placeholder="e.g. brandx.com"
-                  className={cn(INPUT, errors.domain && 'border-danger-400 focus:ring-danger-400')}
-                />
-                <FieldError message={errors.domain?.message} />
-              </div>
-            </div>
-
-            {/* Niche + Priority Tier */}
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label htmlFor="niche" required>Niche</Label>
+                <Label htmlFor="niche">Niche</Label>
                 <input
                   id="niche"
                   {...register('niche')}
-                  placeholder="e.g. Custom Printing"
-                  className={cn(INPUT, errors.niche && 'border-danger-400 focus:ring-danger-400')}
+                  placeholder="e.g. DTF, Custom Printing"
+                  className={INPUT}
                 />
-                <p className="mt-1 text-[10px] text-text-tertiary">Comma-separate multiple niches</p>
-                <FieldError message={errors.niche?.message} />
+                <p className="mt-1 text-[10px] text-text-tertiary">Comma-separate multiple</p>
               </div>
               <div>
-                <Label htmlFor="priority_tier" required>Priority Tier</Label>
+                <Label htmlFor="priority_tier">Priority</Label>
                 <select
                   id="priority_tier"
                   {...register('priority_tier')}
-                  className={cn(
-                    INPUT,
-                    'appearance-none cursor-pointer',
-                    errors.priority_tier && 'border-danger-400 focus:ring-danger-400'
-                  )}
+                  className={cn(INPUT, 'appearance-none cursor-pointer')}
                 >
                   <option value="High">High</option>
                   <option value="Medium">Medium</option>
                   <option value="Low">Low</option>
                 </select>
-                <FieldError message={errors.priority_tier?.message} />
               </div>
             </div>
 
@@ -217,10 +229,9 @@ export default function AddCompetitorModal({ open, onOpenChange }) {
               <input
                 id="tags"
                 {...register('tags')}
-                placeholder="e.g. direct competitor, holiday, Q2"
+                placeholder="e.g. direct competitor, DTF"
                 className={INPUT}
               />
-              <p className="mt-1 text-[10px] text-text-tertiary">Comma-separated tags for organisation</p>
             </div>
 
             {/* Actions */}

@@ -12,7 +12,11 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class CompetitorCreate(BaseModel):
     name: str = Field(..., max_length=120)
-    domain: str = Field(..., max_length=255)
+    meta_ad_library_url: str = Field(..., description="Full Meta Ad Library URL")
+    page_id: Optional[str] = None
+    query: Optional[str] = None
+    query_type: str = Field(default="page_id", max_length=20)
+    domain: str = Field(default="", max_length=255)
     logo_url: Optional[str] = None
     niches: List[str] = Field(default_factory=list)
     priority_tier: str = Field(default="Medium", max_length=20)

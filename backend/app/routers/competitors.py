@@ -246,13 +246,30 @@ async def create_competitor(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Create a new competitor."""
+    """Create a new competitor with scraper-ready fields."""
+    # Check for duplicate name
+    existing = await db.execute(select(Competitor).where(Competitor.name == payload.name))
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=409, detail=f"Competitor '{payload.name}' already exists")
+
+    # Check for duplicate page_id
+    if payload.page_id:
+        existing_pid = await db.execute(
+            select(Competitor).where(Competitor.page_id == payload.page_id)
+        )
+        if existing_pid.scalar_one_or_none():
+            raise HTTPException(status_code=409, detail=f"A competitor with page_id '{payload.page_id}' already exists")
+
     competitor = Competitor(
         name=payload.name,
-        domain=payload.domain,
+        domain=payload.domain or "",
+        page_id=payload.page_id,
+        query=payload.query,
+        query_type=payload.query_type,
+        meta_ad_library_url=payload.meta_ad_library_url,
         priority_tier=payload.priority_tier,
         niches=payload.niches,
-        region=payload.region,
+        region=payload.region or "US",
         tier=payload.tier,
         logo_url=payload.logo_url,
         status="Active",
@@ -262,7 +279,7 @@ async def create_competitor(
     await db.commit()
     await db.refresh(competitor)
 
-    stats = CompetitorStats()  # zero stats for brand-new competitor
+    stats = CompetitorStats()
     return _competitor_to_response(competitor, stats)
 
 

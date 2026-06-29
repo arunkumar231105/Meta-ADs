@@ -24,6 +24,7 @@ import {
   ChevronRight,
   Zap,
   X,
+  Radar,
 } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import useUIStore from '../../store/useUIStore'
@@ -45,12 +46,13 @@ const NAV_GROUPS = [
     id: 'intelligence',
     label: 'INTELLIGENCE',
     items: [
-      { label: 'Competitors',   to: '/competitors',   icon: Users2 },
-      { label: 'Ads Library',   to: '/ads',           icon: BookImage },
-      { label: 'AI Analysis',   to: '/ai-analysis',   icon: Brain },
-      { label: 'Hook Library',  to: '/hooks',         icon: Anchor },
-      { label: 'Angle Library', to: '/angles',        icon: Compass },
-      { label: 'Offer Library', to: '/offers',        icon: Gift },
+      { label: 'Competitors',   to: '/competitors',          icon: Users2 },
+      { label: 'Ad Scraper',    to: '/scraper/competitors',  icon: Radar },
+      { label: 'Ads Library',   to: '/ads',                  icon: BookImage },
+      { label: 'AI Analysis',   to: '/ai-analysis',          icon: Brain },
+      { label: 'Hook Library',  to: '/hooks',                icon: Anchor },
+      { label: 'Angle Library', to: '/angles',               icon: Compass },
+      { label: 'Offer Library', to: '/offers',               icon: Gift },
     ],
   },
   {

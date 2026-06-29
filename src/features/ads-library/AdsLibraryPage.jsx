@@ -108,18 +108,23 @@ export default function AdsLibraryPage() {
   }, [setSearchParams])
 
   // ── Data fetching ──────────────────────────────────────────────────────────
-  const { data: adsData, isLoading: adsLoading } = useAds(filters)
+  const queryParams = useMemo(() => ({
+    ...filters,
+    page,
+    per_page: perPage,
+    ...(debouncedSearch ? { search: debouncedSearch } : {}),
+  }), [filters, page, perPage, debouncedSearch])
+
+  const { data: adsData, isLoading: adsLoading } = useAds(queryParams)
   const { data: summary, isLoading: summaryLoading } = useAdsSummary()
   const { data: competitorsData } = useCompetitors()
 
   const analyzeAd   = useAnalyzeAd()
   const bulkAnalyze = useBulkAnalyze()
 
-  // ── Client-side filter + paginate (mock mode returns all data) ─────────────
-  const allAds   = adsData?.data ?? []
-  const filtered = useMemo(() => applyFilters(allAds, { ...filters, search: debouncedSearch }), [allAds, filters, debouncedSearch])
-  const total    = filtered.length
-  const paged    = useMemo(() => filtered.slice((page - 1) * perPage, page * perPage), [filtered, page, perPage])
+  // ── Use server-side pagination ─────────────────────────────────────────────
+  const paged  = adsData?.data ?? []
+  const total  = adsData?.meta?.total ?? 0
 
   // ── Row selection ──────────────────────────────────────────────────────────
   const [selectedIds, setSelectedIds] = useState(new Set())

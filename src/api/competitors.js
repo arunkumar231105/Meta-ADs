@@ -11,14 +11,10 @@ export const getCompetitor = (id) =>
     ? mock(fx.competitor)
     : client.get(`/competitors/${id}`).then((r) => r.data)
 
-export const createCompetitor = (formData) =>
+export const createCompetitor = (data) =>
   USE_MOCKS
     ? mock(fx.competitor)
-    : client
-        .post('/competitors', formData, {
-          headers: { 'Content-Type': 'multipart/form-data' },
-        })
-        .then((r) => r.data)
+    : client.post('/competitors', data).then((r) => r.data)
 
 export const getCompetitorsSummary = () =>
   USE_MOCKS

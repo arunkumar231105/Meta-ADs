@@ -10,6 +10,7 @@ from app.models.offer import Offer
 from app.models.brief import Brief
 from app.models.campaign import Campaign
 from app.models.settings import WorkspaceSettings
+from app.models.scrape_run import ScrapeRun
 
 __all__ = [
     "TimestampedBase",
@@ -24,4 +25,5 @@ __all__ = [
     "Brief",
     "Campaign",
     "WorkspaceSettings",
+    "ScrapeRun",
 ]

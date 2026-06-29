@@ -23,6 +23,8 @@ const BriefGenerator        = lazy(() => import('../features/creative-briefs/Bri
 const BriefDetail           = lazy(() => import('../features/creative-briefs/BriefDetailPage'))
 const Campaigns             = lazy(() => import('../features/campaigns/CampaignsPage'))
 const CampaignWizard        = lazy(() => import('../features/campaigns/CampaignWizardPage'))
+const ScraperCompetitors    = lazy(() => import('../features/scraper/ScraperCompetitorsPage'))
+const ScraperCompetitorDetail = lazy(() => import('../features/scraper/ScraperCompetitorDetailPage'))
 const LearningLoop          = lazy(() => import('../features/learning-loop/LearningLoopPage'))
 const InsightLog            = lazy(() => import('../features/insight-log/InsightLogPage'))
 const PredictionAccuracy    = lazy(() => import('../features/prediction-accuracy/PredictionAccuracyPage'))
@@ -82,6 +84,7 @@ export default function AppRoutes() {
         <Route path="/dashboard" element={<Dashboard />} />
 
         {/* Intelligence */}
+        <Route path="/competitors/:id" element={<ScraperCompetitorDetail />} />
         <Route path="/competitors"    element={<Competitors />} />
         <Route path="/ads/new"        element={<AddNewAd />} />
         <Route path="/ads/:id"        element={<AdDetail />} />
@@ -101,6 +104,10 @@ export default function AppRoutes() {
         <Route path="/briefs"            element={<Briefs />} />
         <Route path="/campaigns/new"     element={<CampaignWizard />} />
         <Route path="/campaigns"        element={<Campaigns />} />
+
+        {/* Scraper */}
+        <Route path="/scraper/competitors/:id" element={<ScraperCompetitorDetail />} />
+        <Route path="/scraper/competitors"     element={<ScraperCompetitors />} />
 
         {/* Learning & Optimization */}
         <Route path="/learning-loop"       element={<LearningLoop />} />
